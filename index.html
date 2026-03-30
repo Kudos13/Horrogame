@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HOLLOW — A Horror Explorer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
+  #canvas { display: block; width: 100vw; height: 100vh; }
+
+  #ui { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  #crosshair {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px; height: 20px;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute; background: rgba(255,60,60,0.7);
+  }
+  #crosshair::before { width: 2px; height: 100%; left: 50%; transform: translateX(-50%); }
+  #crosshair::after { height: 2px; width: 100%; top: 50%; transform: translateY(-50%); }
+
+  #hud {
+    position: absolute; bottom: 30px; left: 30px; right: 30px;
+    display: flex; justify-content: space-between; align-items: flex-end;
+  }
+  #level-info { color: #cc3333; font-size: 13px; letter-spacing: 3px; text-transform: uppercase; }
+  #level-name { font-size: 20px; font-weight: bold; color: #ff4444; letter-spacing: 4px; margin-top: 4px; }
+  #keys-found { color: #888; font-size: 12px; letter-spacing: 2px; }
+  #controls-hint { color: #444; font-size: 11px; text-align: right; letter-spacing: 1px; line-height: 1.8; }
+
+  #vignette {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.85) 100%);
+    pointer-events: none;
+  }
+
+  #blood-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(180,0,0,0.0) 100%);
+    pointer-events: none; transition: opacity 0.5s;
+    opacity: 0;
+  }
+
+  #screen-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #000; transition: opacity 0.8s; z-index: 100;
+    pointer-events: all;
+  }
+  #screen-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .overlay-title {
+    color: #cc2222; font-size: clamp(32px, 6vw, 72px);
+    letter-spacing: 12px; text-transform: uppercase; margin-bottom: 12px;
+    text-shadow: 0 0 40px rgba(200,0,0,0.5);
+    font-family: 'Courier New', monospace;
+  }
+  .overlay-sub {
+    color: #555; font-size: 13px; letter-spacing: 4px;
+    text-transform: uppercase; margin-bottom: 40px;
+  }
+  .overlay-btn {
+    background: transparent; border: 1px solid #cc2222;
+    color: #cc2222; padding: 14px 40px; font-size: 13px;
+    letter-spacing: 4px; text-transform: uppercase; cursor: pointer;
+    font-family: 'Courier New', monospace; transition: all 0.3s;
+    pointer-events: all;
+  }
+  .overlay-btn:hover { background: rgba(204,34,34,0.15); box-shadow: 0 0 20px rgba(200,0,0,0.3); }
+
+  #message-box {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, calc(-50% - 80px));
+    color: #cc3333; font-size: 15px; letter-spacing: 3px;
+    text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity 0.4s;
+    text-shadow: 0 0 20px rgba(200,0,0,0.6);
+  }
+
+  #level-transition {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #000; opacity: 0; pointer-events: none; z-index: 50;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.5s;
+  }
+  #level-transition.active { opacity: 1; pointer-events: all; }
+  #transition-text { color: #cc2222; font-size: 28px; letter-spacing: 8px; text-transform: uppercase; }
+  #transition-sub { color: #333; font-size: 12px; letter-spacing: 4px; margin-top: 12px; }
+
+  #noise-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0.025; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 256px;
+  }
+
+  #stamina-bar {
+    position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 3px; background: rgba(255,255,255,0.1);
+    border-radius: 2px; overflow: hidden;
+  }
+  #stamina-fill {
+    height: 100%; background: #cc3333; width: 100%;
+    transition: width 0.1s, background 0.3s;
+  }
+
+  #win-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #000; z-index: 200; opacity: 0; pointer-events: none;
+    transition: opacity 1s;
+  }
+  #win-overlay.visible { opacity: 1; pointer-events: all; }
+  .win-title { color: #cc2222; font-size: 48px; letter-spacing: 10px; margin-bottom: 16px; }
+  .win-sub { color: #444; font-size: 13px; letter-spacing: 4px; margin-bottom: 40px; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div id="ui">
+  <div id="vignette"></div>
+  <div id="noise-overlay"></div>
+  <div id="blood-overlay"></div>
+  <div id="crosshair"></div>
+  <div id="message-box" id="msg"></div>
+  <div id="hud">
+    <div>
+      <div id="level-info">Level <span id="level-num">1</span> / 5</div>
+      <div id="level-name">THE ENTRANCE</div>
+      <div id="keys-found" style="margin-top:6px;">&#9632; KEY: <span id="key-status">NOT FOUND</span></div>
+    </div>
+    <div id="controls-hint">
+      WASD — MOVE<br>
+      MOUSE — LOOK<br>
+      SHIFT — RUN<br>
+      CLICK — LOCK CURSOR
+    </div>
+  </div>
+  <div id="stamina-bar"><div id="stamina-fill"></div></div>
+</div>
+
+<div id="screen-overlay">
+  <div class="overlay-title">HOLLOW</div>
+  <div class="overlay-sub">Five floors. One way out. No light at the end.</div>
+  <button class="overlay-btn" id="start-btn">Enter the Darkness</button>
+</div>
+
+<div id="level-transition">
+  <div id="transition-text">DESCENDING</div>
+  <div id="transition-sub">FLOOR <span id="next-floor">2</span></div>
+</div>
+
+<div id="win-overlay">
+  <div class="win-title">YOU ESCAPED</div>
+  <div class="win-sub">...or did you?</div>
+  <button class="overlay-btn" id="restart-btn">Return to Hell</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const LEVELS = [
+  {
+    name: "THE ENTRANCE",
+    fogColor: 0x050505,
+    fogDensity: 0.06,
+    ambientColor: 0x111111,
+    ambientIntensity: 0.4,
+    lightColor: 0xff4422,
+    maze: [
+      "##########",
+      "#S.......#",
+      "#.######.#",
+      "#.#....#.#",
+      "#.#.##.#.#",
+      "#...#K.#.#",
+      "#####.####",
+      "#........#",
+      "#.######.#",
+      "#.......E#",
+      "##########",
+    ],
+    floorColor: 0x111111,
+    wallColor: 0x1a1a1a,
+    ceilingColor: 0x080808,
+    wallDetail: 0x222222,
+    scareChance: 0.0008,
+    ambientSound: 'drip',
+  },
+  {
+    name: "THE CATACOMBS",
+    fogColor: 0x050305,
+    fogDensity: 0.07,
+    ambientColor: 0x0a080a,
+    ambientIntensity: 0.3,
+    lightColor: 0x8833aa,
+    maze: [
+      "############",
+      "#S..........#",
+      "#.##.######.#",
+      "#.##.#....#.#",
+      "#....#.##.#.#",
+      "####.#.#K.#.#",
+      "#....#.####.#",
+      "#.##.#......#",
+      "#.##.########",
+      "#....#......E",
+      "############",
+    ],
+    floorColor: 0x0d0a0d,
+    wallColor: 0x180d18,
+    ceilingColor: 0x060406,
+    wallDetail: 0x1f0f1f,
+    scareChance: 0.001,
+    ambientSound: 'whisper',
+  },
+  {
+    name: "THE SANCTUM",
+    fogColor: 0x030508,
+    fogDensity: 0.065,
+    ambientColor: 0x080a10,
+    ambientIntensity: 0.25,
+    lightColor: 0x2244ff,
+    maze: [
+      "#############",
+      "#S..........#",
+      "#.##########.#",
+      "#.#........#.#",
+      "#.#.######.#.#",
+      "#.#.#K...#.#.#",
+      "#.#.#.###.#.#.#",
+      "#.#.......#...#",
+      "#.##########.#",
+      "#...........E#",
+      "#############",
+    ],
+    floorColor: 0x080a10,
+    wallColor: 0x101520,
+    ceilingColor: 0x040507,
+    wallDetail: 0x151a25,
+    scareChance: 0.0012,
+    ambientSound: 'breath',
+  },
+  {
+    name: "THE ABYSS",
+    fogColor: 0x020202,
+    fogDensity: 0.09,
+    ambientColor: 0x080808,
+    ambientIntensity: 0.15,
+    lightColor: 0xff1111,
+    maze: [
+      "##############",
+      "#S...........#",
+      "##.##.######.#",
+      "#..#..#.....##",
+      "#.###.#.####.#",
+      "#.....#.#K#..#",
+      "#.#####.#.#.##",
+      "#.#.....#.#..#",
+      "#.#.#####.##.#",
+      "#.#.......#..#",
+      "#.###########.#",
+      "#...........E#",
+      "##############",
+    ],
+    floorColor: 0x060606,
+    wallColor: 0x111111,
+    ceilingColor: 0x030303,
+    wallDetail: 0x181818,
+    scareChance: 0.0015,
+    ambientSound: 'growl',
+  },
+  {
+    name: "THE FINAL ROOM",
+    fogColor: 0x030000,
+    fogDensity: 0.05,
+    ambientColor: 0x100505,
+    ambientIntensity: 0.2,
+    lightColor: 0xff0000,
+    maze: [
+      "###############",
+      "#S............#",
+      "#.#############",
+      "#.............#",
+      "#############.#",
+      "#K............#",
+      "#.#############",
+      "#.............#",
+      "#############.#",
+      "#.............#",
+      "#.#############",
+      "#.............E",
+      "###############",
+    ],
+    floorColor: 0x100505,
+    wallColor: 0x1a0808,
+    ceilingColor: 0x060202,
+    wallDetail: 0x200a0a,
+    scareChance: 0.002,
+    ambientSound: 'heartbeat',
+  }
+];
+
+let currentLevel = 0;
+let hasKey = false;
+let scareMsgTimeout = null;
+let stamina = 100;
+let isRunning = false;
+let pointerLocked = false;
+let gameStarted = false;
+
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = false;
+renderer.setClearColor(0x000000);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 50);
+camera.position.set(0, 0.9, 0);
+
+const clock = new THREE.Clock();
+const CELL = 2.5;
+const WALL_H = 2.8;
+
+let walls = [], floor = null, ceiling = null;
+let keyObject = null, exitObject = null;
+let playerStart = new THREE.Vector3();
+let keyPos = new THREE.Vector3();
+let exitPos = new THREE.Vector3();
+let pointLight = null;
+
+const keys = { w: false, a: false, s: false, d: false, shift: false };
+let yaw = 0, pitch = 0;
+let bobTime = 0;
+
+const SCARE_MESSAGES = [
+  "IT KNOWS YOU'RE HERE",
+  "DON'T LOOK BEHIND YOU",
+  "YOU ARE NOT ALONE",
+  "IT'S GETTING CLOSER",
+  "THE WALLS ARE BREATHING",
+  "YOU SHOULDN'T HAVE COME HERE",
+  "CAN YOU HEAR IT?",
+  "TURN BACK",
+  "IT SEES YOU",
+];
+
+function buildLevel(levelIdx) {
+  const lvl = LEVELS[levelIdx];
+
+  scene.children.slice().forEach(c => { if (c !== camera) scene.remove(c); });
+  walls = [];
+
+  scene.fog = new THREE.FogExp2(lvl.fogColor, lvl.fogDensity);
+  scene.background = new THREE.Color(lvl.fogColor);
+
+  const ambient = new THREE.AmbientLight(lvl.ambientColor, lvl.ambientIntensity);
+  scene.add(ambient);
+
+  pointLight = new THREE.PointLight(lvl.lightColor, 1.2, 12);
+  scene.add(pointLight);
+
+  const flickerLight = new THREE.PointLight(lvl.lightColor, 0.4, 8);
+  flickerLight.userData.flicker = true;
+  scene.add(flickerLight);
+
+  const wallMat = new THREE.MeshLambertMaterial({ color: lvl.wallColor });
+  const detailMat = new THREE.MeshLambertMaterial({ color: lvl.wallDetail });
+  const floorMat = new THREE.MeshLambertMaterial({ color: lvl.floorColor });
+  const ceilMat = new THREE.MeshLambertMaterial({ color: lvl.ceilingColor });
+  const keyMat = new THREE.MeshLambertMaterial({ color: 0xddaa00 });
+  const exitMat = new THREE.MeshLambertMaterial({ color: 0x003300, emissive: 0x002200, emissiveIntensity: 0.5 });
+
+  const maze = lvl.maze;
+  const rows = maze.length;
+  const cols = maze[0].length;
+
+  const floorGeo = new THREE.PlaneGeometry(cols * CELL, rows * CELL);
+  const floorMesh = new THREE.Mesh(floorGeo, floorMat);
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.position.set((cols * CELL) / 2 - CELL / 2, 0, (rows * CELL) / 2 - CELL / 2);
+  scene.add(floorMesh);
+
+  const ceilMesh = new THREE.Mesh(floorGeo.clone(), ceilMat);
+  ceilMesh.rotation.x = Math.PI / 2;
+  ceilMesh.position.set((cols * CELL) / 2 - CELL / 2, WALL_H, (rows * CELL) / 2 - CELL / 2);
+  scene.add(ceilMesh);
+
+  const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const ch = maze[r][c];
+      const x = c * CELL;
+      const z = r * CELL;
+
+      if (ch === '#') {
+        const mat = (r + c) % 3 === 0 ? detailMat : wallMat;
+        const wall = new THREE.Mesh(wallGeo, mat);
+        wall.position.set(x, WALL_H / 2, z);
+        scene.add(wall);
+        walls.push(wall);
+      } else if (ch === 'S') {
+        playerStart.set(x, 0.9, z);
+      } else if (ch === 'K') {
+        keyPos.set(x, 0.5, z);
+        const keyGeo = new THREE.BoxGeometry(0.15, 0.4, 0.05);
+        keyObject = new THREE.Mesh(keyGeo, keyMat);
+        keyObject.position.copy(keyPos);
+        scene.add(keyObject);
+        const keyLight = new THREE.PointLight(0xffcc00, 1.5, 3);
+        keyLight.position.copy(keyPos).y += 0.5;
+        scene.add(keyLight);
+      } else if (ch === 'E') {
+        exitPos.set(x, 0, z);
+        const exitGeo = new THREE.BoxGeometry(CELL * 0.8, WALL_H * 0.9, 0.2);
+        exitObject = new THREE.Mesh(exitGeo, exitMat);
+        exitObject.position.set(x, WALL_H / 2, z);
+        scene.add(exitObject);
+        const exitLight = new THREE.PointLight(0x00ff44, 0.8, 4);
+        exitLight.position.set(x, 1, z);
+        scene.add(exitLight);
+      }
+    }
+  }
+
+  camera.position.copy(playerStart);
+  yaw = 0; pitch = 0;
+  hasKey = false;
+  updateKeyStatus();
+  updateHUD();
+}
+
+function updateHUD() {
+  const lvl = LEVELS[currentLevel];
+  document.getElementById('level-num').textContent = currentLevel + 1;
+  document.getElementById('level-name').textContent = lvl.name;
+}
+
+function updateKeyStatus() {
+  const el = document.getElementById('key-status');
+  el.textContent = hasKey ? 'FOUND' : 'NOT FOUND';
+  el.style.color = hasKey ? '#44ff44' : '#cc4444';
+}
+
+function showMessage(text, duration = 3000) {
+  const box = document.getElementById('message-box');
+  box.textContent = text;
+  box.style.opacity = '1';
+  clearTimeout(scareMsgTimeout);
+  scareMsgTimeout = setTimeout(() => { box.style.opacity = '0'; }, duration);
+}
+
+function triggerBloodFlash() {
+  const overlay = document.getElementById('blood-overlay');
+  overlay.style.opacity = '0.4';
+  setTimeout(() => { overlay.style.opacity = '0'; }, 600);
+}
+
+function checkCollision(newPos) {
+  const r = 0.35;
+  for (const wall of walls) {
+    const wp = wall.position;
+    const hw = CELL / 2 + r;
+    if (Math.abs(newPos.x - wp.x) < hw && Math.abs(newPos.z - wp.z) < hw) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function advanceLevel() {
+  if (currentLevel >= LEVELS.length - 1) {
+    document.getElementById('win-overlay').classList.add('visible');
+    return;
+  }
+
+  const trans = document.getElementById('level-transition');
+  const nextNum = document.getElementById('next-floor');
+  nextNum.textContent = currentLevel + 2;
+  trans.classList.add('active');
+
+  setTimeout(() => {
+    currentLevel++;
+    buildLevel(currentLevel);
+    trans.classList.remove('active');
+  }, 2000);
+}
+
+function gameLoop() {
+  requestAnimationFrame(gameLoop);
+  if (!gameStarted) { renderer.render(scene, camera); return; }
+
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  const dir = new THREE.Vector3();
+  const front = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+
+  if (keys.w) dir.addScaledVector(front, 1);
+  if (keys.s) dir.addScaledVector(front, -1);
+  if (keys.a) dir.addScaledVector(right, -1);
+  if (keys.d) dir.addScaledVector(right, 1);
+
+  isRunning = keys.shift && stamina > 0 && dir.length() > 0;
+  const speed = isRunning ? 5.5 : 3.2;
+
+  if (isRunning) {
+    stamina = Math.max(0, stamina - dt * 30);
+  } else {
+    stamina = Math.min(100, stamina + dt * 15);
+  }
+  document.getElementById('stamina-fill').style.width = stamina + '%';
+  document.getElementById('stamina-fill').style.background = stamina < 25 ? '#ff2222' : '#cc3333';
+
+  if (dir.length() > 0) {
+    dir.normalize();
+    const newPos = camera.position.clone().addScaledVector(dir, speed * dt);
+    if (!checkCollision(newPos)) {
+      camera.position.copy(newPos);
+    } else {
+      const newPosX = camera.position.clone();
+      newPosX.x += dir.x * speed * dt;
+      if (!checkCollision(newPosX)) camera.position.x = newPosX.x;
+      const newPosZ = camera.position.clone();
+      newPosZ.z += dir.z * speed * dt;
+      if (!checkCollision(newPosZ)) camera.position.z = newPosZ.z;
+    }
+    bobTime += dt * (isRunning ? 12 : 7);
+    camera.position.y = 0.9 + Math.sin(bobTime) * 0.05;
+  }
+
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+
+  if (pointLight) {
+    pointLight.position.copy(camera.position).y += 0.3;
+  }
+
+  scene.children.forEach(c => {
+    if (c.userData && c.userData.flicker) {
+      c.position.copy(camera.position);
+      c.intensity = 0.2 + Math.random() * 0.5;
+    }
+  });
+
+  if (keyObject) {
+    keyObject.rotation.y += dt * 2;
+    const dx = camera.position.x - keyPos.x;
+    const dz = camera.position.z - keyPos.z;
+    if (!hasKey && Math.sqrt(dx * dx + dz * dz) < 1.2) {
+      hasKey = true;
+      scene.remove(keyObject);
+      keyObject = null;
+      updateKeyStatus();
+      showMessage('KEY OBTAINED — FIND THE EXIT', 3000);
+    }
+  }
+
+  if (exitObject) {
+    const dx = camera.position.x - exitPos.x;
+    const dz = camera.position.z - exitPos.z;
+    if (Math.sqrt(dx * dx + dz * dz) < 1.8) {
+      if (hasKey) {
+        showMessage('DESCENDING...', 1500);
+        exitObject = null;
+        setTimeout(advanceLevel, 1000);
+      } else {
+        showMessage('THE DOOR IS LOCKED — FIND THE KEY', 2500);
+      }
+    }
+  }
+
+  const lvl = LEVELS[currentLevel];
+  if (Math.random() < lvl.scareChance) {
+    showMessage(SCARE_MESSAGES[Math.floor(Math.random() * SCARE_MESSAGES.length)], 2500);
+    triggerBloodFlash();
+  }
+
+  renderer.render(scene, camera);
+}
+
+document.addEventListener('keydown', e => {
+  if (e.code === 'KeyW') keys.w = true;
+  if (e.code === 'KeyA') keys.a = true;
+  if (e.code === 'KeyS') keys.s = true;
+  if (e.code === 'KeyD') keys.d = true;
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = true;
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'KeyW') keys.w = false;
+  if (e.code === 'KeyA') keys.a = false;
+  if (e.code === 'KeyS') keys.s = false;
+  if (e.code === 'KeyD') keys.d = false;
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') keys.shift = false;
+});
+
+canvas.addEventListener('click', () => { canvas.requestPointerLock(); });
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked || !gameStarted) return;
+  const sens = 0.002;
+  yaw -= e.movementX * sens;
+  pitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, pitch - e.movementY * sens));
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+document.getElementById('start-btn').addEventListener('click', () => {
+  const overlay = document.getElementById('screen-overlay');
+  overlay.classList.add('hidden');
+  buildLevel(0);
+  gameStarted = true;
+  canvas.requestPointerLock();
+});
+
+document.getElementById('restart-btn').addEventListener('click', () => {
+  document.getElementById('win-overlay').classList.remove('visible');
+  currentLevel = 0;
+  buildLevel(0);
+  canvas.requestPointerLock();
+});
+
+gameLoop();
+</script>
+</body>
+</html>
